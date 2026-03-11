@@ -9,7 +9,7 @@ import serial
 
 class PicoInterface(Node):
     def __init__(self):
-        super().__init__(node_name="pico_interface", namespace="homer")
+        super().__init__(node_name="pico_interface")
         # Establish serial communication with Pico through USB
         self.pico_msngr = serial.Serial(
             "/dev/ttyACM0",  # UART port: ttyAMA0
@@ -44,16 +44,27 @@ class PicoInterface(Node):
 
         self.prev_ts = self.get_clock().now()
         self.curr_ts = self.get_clock().now()
+        self.set_vel_ts = self.get_clock().now()
         # Constants
         self.GROUND_CLEARANCE = 0.0325
         # Log
         self.get_logger().info("HomeR's motion controller is up.")
 
+    def set_targ_vels(self, msg):
+        self.set_vel_ts = self.get_clock().now()
+        self.targ_lin_vel = msg.linear.x
+        self.targ_ang_vel = msg.angular.z
+        # msg_to_pico = f"{self.targ_lin_vel:.3f},{self.targ_ang_vel:.3f}\n"
+        # self.pico_msngr.write(msg_to_pico.encode("utf-8"))
+        self.get_logger().debug(
+            f"Set target velocity\nlinear: {self.targ_lin_vel}, angular: {self.targ_ang_vel}"
+        )
+
     def process_pico_message(self):
         # Transmit velocity commands to Pico
         msg_to_pico = f"{self.targ_lin_vel:.3f},{self.targ_ang_vel:.3f}\n"
-        # Receive motion data from Pico
         self.pico_msngr.write(msg_to_pico.encode("utf-8"))
+        # Receive motion data from Pico
         if self.pico_msngr.inWaiting() > 0:
             msg_from_pico = self.pico_msngr.readline().decode("utf-8", "ignore").strip()
             if msg_from_pico:
@@ -71,8 +82,8 @@ class PicoInterface(Node):
         self.get_logger().debug(
             f"Motion data:\n---\n{self.motion_data}"
         )  # debug
-        # Update pose
         self.curr_ts = self.get_clock().now()
+        # Update pose
         dt = (self.curr_ts - self.prev_ts).nanoseconds * 1e-9
         dx = self.motion_data["enc_lin_vel"] * cos(self.pose["theta"]) * dt
         dy = self.motion_data["enc_lin_vel"] * sin(self.pose["theta"]) * dt
@@ -82,8 +93,8 @@ class PicoInterface(Node):
         self.pose["theta"] += dth
         self.pose["theta"] = atan2(sin(self.pose["theta"]), cos(self.pose["theta"]))  # restrict value: [-pi, pi]
         quat = quaternion_about_axis(self.pose["theta"], (0, 0, 1))
-        self.prev_ts = self.curr_ts
         # Publish odom topic
+        self.prev_ts = self.curr_ts
         odom_msg = Odometry()
         odom_msg.header.stamp = self.curr_ts.to_msg()
         odom_msg.header.frame_id = "odom"
@@ -109,14 +120,10 @@ class PicoInterface(Node):
         imu_msg.angular_velocity.y = self.motion_data["gyro_y"]
         imu_msg.angular_velocity.z = self.motion_data["gyro_z"]
         self.imu_publisher.publish(imu_msg)
-
-    def set_targ_vels(self, msg):
-        targ_lin_vel = msg.linear.x
-        targ_ang_vel = msg.angular.z
-        self.pico_msngr.write(f"{targ_lin_vel:.3f},{targ_ang_vel:.3f}\n".encode("utf-8"))
-        self.get_logger().debug(
-            f"Set target velocity\nlinear: {targ_lin_vel}, angular: {targ_ang_vel}"
-        )
+        # Clear target velocity
+        if (self.curr_ts - self.set_vel_ts).nanoseconds > 500_000_000:
+            self.targ_lin_vel = 0.0
+            self.targ_ang_vel = 0.0
 
 
 def main(args=None):
