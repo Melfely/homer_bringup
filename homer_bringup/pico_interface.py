@@ -2,13 +2,14 @@ import rclpy
 from rclpy.node import Node
 from tf_transformations import quaternion_about_axis
 from geometry_msgs.msg import Twist
+from sensor_msgs.msg import Imu
 from nav_msgs.msg import Odometry
 from math import sin, cos, pi
 import serial
 
 class PicoInterface(Node):
     def __init__(self):
-        super().__init__("pico_interface")
+        super().__init__(node_name="pico_interface", namespace="homer")
         # Create serial communication to Pico
         self.pico_msngr = serial.Serial(
             "/dev/ttyACM0",
@@ -24,16 +25,10 @@ class PicoInterface(Node):
             qos_profile=1,
         )
         # variables
-        self.encoder_lin_vel = 0.0
-        self.encoder_ang_vel = 0.0
-        self.accel_x = 0.0
-        self.accel_y = 0.0
-        self.accel_z = 0.0
-        self.gyro_x = 0.0
-        self.gyro_y = 0.0
-        self.gyro_z = 0.0
-        self.targ_lin_vel = 0.0
-        self.targ_ang_vel = 0.0
+        data_keys = ["enc_lin_vel", "enc_ang_vel", "accel_x", "accel_y", "accel_z", "gyro_x", "gyro_y", "gyro_z"]
+        self.motion_data = {key: 0.0 for key in data_keys}
+        self.targ_lin_vel = 0.0  # target linear velocity
+        self.targ_ang_vel = 0.0  # target angular velocity
         # constants
         self.get_logger().info("HomeR's motion controller is up.")
 
@@ -43,17 +38,29 @@ class PicoInterface(Node):
         if self.pico_msngr.inWaiting() > 0:
             msg_from_pico = self.pico_msngr.readline().decode("utf-8", "ignore").strip()
             if msg_from_pico:
-                motion_data = msg_from_pico.split(",")
-                if len(motion_data) == 8:
+                data_strings = msg_from_pico.split(",")
+                if len(data_strings) == 8:
                     try:
-                        self.meas_lin_vel = float(motion_data[0])
-                        self.meas_ang_vel = float(motion_data[1])
+                        # motion_data_float = list(map(float, motion_data_str))
+                        # self.enc_lin_vel = motion_data_float[0]
+                        # self.enc_ang_vel = motion_data_float[1]
+                        # self.accel_x = motion_data_float[2]
+                        # self.accel_y = motion_data_float[3]
+                        # self.accel_z = motion_data_float[4]
+                        # self.gyro_x = motion_data_float[5]
+                        # self.gyro_y = motion_data_float[6]
+                        # self.gyro_z = motion_data_float[7]
+                        self.motion_data.update(
+                            zip(
+                                self.motion_data.keys(),
+                                map(float, data_strings),  # convert all str in list to float
+                            )
+                        )
                     except ValueError:
-                        self.meas_lin_vel = 0.0
-                        self.meas_ang_vel = 0.0
-        self.get_logger().debug(
-            f"Measured velocity\nlinear: {self.meas_lin_vel}, angular: {self.meas_ang_vel}"
-        )
+                        pass
+        self.get_logger().info(
+            f"Motion data:\n---\n{self.motion_data}"
+        )  # debug
 
     def set_targ_vels(self, msg):
         targ_lin_vel = msg.linear.x
