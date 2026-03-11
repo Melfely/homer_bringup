@@ -33,3 +33,23 @@ ros2 run homer_bringup pico_interface
 ```console
 ros2 launch homer_bringup homer_launch.py
 ```
+
+
+## Camera Extra
+
+### Install dependencies
+```console
+sudo apt install python3-pip
+pip install opencv-python==4.11.0.86 --break-system-packages
+pip install 'numpy<2' --break-system-packages
+cd ~/homer_ws/
+colcon build
+source ~/homer_ws/install/local_setup.bash
+```
+
+### Usage
+
+```console
+ros2 launch homer_bringup aruco_detection_launch.py
+```
+
