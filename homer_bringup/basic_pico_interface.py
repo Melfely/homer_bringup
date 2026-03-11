@@ -5,12 +5,11 @@ import rclpy
 from rclpy.node import Node
 from tf_transformations import quaternion_about_axis
 from geometry_msgs.msg import Twist
-from sensor_msgs.msg import Imu
 from nav_msgs.msg import Odometry
 
-class PicoInterface(Node):
+class BasicPicoInterface(Node):
     def __init__(self):
-        super().__init__(node_name="pico_interface")
+        super().__init__(node_name="pico_interface_exclude_imu")
         # Establish serial communication with Pico through USB
         self.pico_msngr = serial.Serial(
             "/dev/ttyACM0",  # UART port: ttyAMA0
@@ -31,14 +30,8 @@ class PicoInterface(Node):
             topic="/homer/odom",
             qos_profile=1,
         )
-        self.imu_publisher = self.create_publisher(
-            msg_type=Imu,
-            topic="/homer/imu",
-            qos_profile=1,
-        )
         # Variables
-        motion_keys = ["enc_lin_vel", "enc_ang_vel", "accel_x", "accel_y", "accel_z", "gyro_x", "gyro_y", "gyro_z"]
-        self.motion_data = {key: 0.0 for key in motion_keys}
+        self.motion_data = {key: 0.0 for key in ["enc_lin_vel", "enc_ang_vel"]}
         self.targ_lin_vel = 0.0
         self.targ_ang_vel = 0.0
         self.pose = {key: 0.0 for key in ["x", "y", "theta"]}
@@ -67,16 +60,15 @@ class PicoInterface(Node):
             msg_from_pico = self.pico_msngr.readline().decode("utf-8", "ignore").strip()
             if msg_from_pico:
                 data_strings = msg_from_pico.split(",")
-                if len(data_strings) == 8:
-                    try:
-                        self.motion_data.update(
-                            zip(
-                                self.motion_data.keys(),
-                                map(float, data_strings),  # convert all str in list to float
-                            )
+                try:
+                    self.motion_data.update(
+                        zip(
+                            self.motion_data.keys(),
+                            map(float, data_strings),  # convert all str in list to float
                         )
-                    except ValueError:
-                        pass
+                    )
+                except ValueError:
+                    pass
         self.get_logger().debug(
             f"Motion data:\n---\n{self.motion_data}"
         )  # debug
@@ -107,17 +99,6 @@ class PicoInterface(Node):
         odom_msg.twist.twist.linear.x = self.motion_data["enc_lin_vel"]
         odom_msg.twist.twist.angular.z = self.motion_data["enc_ang_vel"]
         self.odom_publisher.publish(odom_msg)
-        # Publish imu topic
-        imu_msg = Imu()
-        imu_msg.header.stamp = self.curr_ts.to_msg()
-        imu_msg.header.frame_id = "imu"
-        imu_msg.linear_acceleration.x = self.motion_data["accel_x"]
-        imu_msg.linear_acceleration.y = self.motion_data["accel_y"]
-        imu_msg.linear_acceleration.z = self.motion_data["accel_z"]
-        imu_msg.angular_velocity.x = self.motion_data["gyro_x"]
-        imu_msg.angular_velocity.y = self.motion_data["gyro_y"]
-        imu_msg.angular_velocity.z = self.motion_data["gyro_z"]
-        self.imu_publisher.publish(imu_msg)
         # Clear target velocity after 0.5 s idling
         if (self.curr_ts - self.set_vel_ts).nanoseconds > 500_000_000:
             self.targ_lin_vel = 0.0
@@ -126,9 +107,9 @@ class PicoInterface(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-    pico_interface = PicoInterface()
-    rclpy.spin(pico_interface)
-    pico_interface.destroy_node()
+    basic_pico_interface = BasicPicoInterface()
+    rclpy.spin(basic_pico_interface)
+    basic_pico_interface.destroy_node()
     rclpy.shutdown()
 
 

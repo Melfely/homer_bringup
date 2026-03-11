@@ -33,7 +33,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'pico_interface = homer_bringup.pico_interface:main'
+            'pico_interface = homer_bringup.pico_interface:main',
+            'basic_pico_interface = homer_bringup.basic_pico_interface:main',
         ],
     },
 )
