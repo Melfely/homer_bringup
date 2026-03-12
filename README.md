@@ -1,6 +1,9 @@
 # homer_bringup
 ROS package to start up HomeR hardware interface
 
+> [!IMPORTANT]
+> Use this package on Raspberry Pi.
+
 ## Installation
 ```console
 # create workspace
