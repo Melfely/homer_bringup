@@ -1,5 +1,6 @@
 from math import sin, cos, atan2
 import serial
+from os import path as os_path
 
 import rclpy
 from rclpy.node import Node
@@ -7,6 +8,7 @@ from tf_transformations import quaternion_about_axis
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Imu
 from nav_msgs.msg import Odometry
+
 
 class PicoInterface(Node):
     def __init__(self):
@@ -18,6 +20,9 @@ class PicoInterface(Node):
             timeout=0.01,
         )
         self.pico_comm_timer = self.create_timer(0.0133, self.process_pico_message)  # 75 Hz
+
+        #This only runs at a freq of 2 Hz, since its for reconnection, it does not need to be that fast.
+        self.reconnect_timer = self.create_timer(0.5, self.reconnect, autostart=False)
         # Create target velocity subscriber
         self.cmd_vel_subscriber = self.create_subscription(
             msg_type=Twist,
@@ -61,22 +66,42 @@ class PicoInterface(Node):
     def process_pico_message(self):
         # Transmit velocity commands to Pico
         msg_to_pico = f"{self.targ_lin_vel:.3f},{self.targ_ang_vel:.3f}\n"
-        self.pico_msngr.write(msg_to_pico.encode("utf-8"))
+        try:
+            self.pico_msngr.write(msg_to_pico.encode("utf-8"))
+        except Exception as e:
+            #On connection fail, close it, then start the connection timer.
+                self.pico_msngr.close()
+                if (self.reconnect_timer.is_canceled()):
+                    self.get_logger().error(f"Pico Disconnected: {e}")
+                    self.reconnect_timer.reset()
+
+
         # Receive motion data from Pico
-        if self.pico_msngr.inWaiting() > 0:
-            msg_from_pico = self.pico_msngr.readline().decode("utf-8", "ignore").strip()
-            if msg_from_pico:
-                data_strings = msg_from_pico.split(",")
-                if len(data_strings) == 8:
-                    try:
-                        self.motion_data.update(
-                            zip(
-                                self.motion_data.keys(),
-                                map(float, data_strings),  # convert all str in list to float
+        try:
+            if self.pico_msngr.inWaiting() > 0:
+                msg_from_pico = self.pico_msngr.readline().decode("utf-8", "ignore").strip()
+                if msg_from_pico:
+                    data_strings = msg_from_pico.split(",")
+                    if len(data_strings) == 8:
+                        try:
+                            self.motion_data.update(
+                                zip(
+                                    self.motion_data.keys(),
+                                    map(float, data_strings),  # convert all str in list to float
+                                )
                             )
-                        )
-                    except ValueError:
-                        pass
+                        except ValueError:
+                            pass
+        except ValueError:
+            pass
+        except Exception as e:
+            #On connection fail, close it, then start the connection timer.
+            self.pico_msngr.close()
+            if (self.reconnect_timer.is_canceled()):
+                self.get_logger().error(f"Pico Disconnected: {e}")
+                self.reconnect_timer.reset()
+                    
+                            
         self.get_logger().debug(
             f"Motion data:\n---\n{self.motion_data}"
         )  # debug
@@ -123,6 +148,12 @@ class PicoInterface(Node):
             self.targ_lin_vel = 0.0
             self.targ_ang_vel = 0.0
 
+
+    def reconnect(self):
+        if (os_path.exists('/dev/ttyACM0')):
+            self.pico_msngr = serial.Serial('/dev/ttyACM0', 115200, timeout=0.01)
+            self.get_logger().info("Pico Reconnected")
+            self.reconnect_timer.cancel()
 
 def main(args=None):
     rclpy.init(args=args)
